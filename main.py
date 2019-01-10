@@ -14,6 +14,7 @@ class Parser:
     start = ''
     pretable = odict() # 预测分析表
     can_be_empty = [] # 能推导出空串的非终
+    iserror = False
 
     def open(self, path):
         with open(path) as f:
@@ -197,36 +198,43 @@ class Parser:
 
 
 
-    def ll1(self, str):
+    def ll1(self, _str):
         symstack = ['#', self.start]
         print(symstack)
-        inputstack = list(str)
+        inputstack = list(_str)
         print(inputstack)
         current_sym_top = symstack.pop()
         current_in_top = inputstack.pop(0)
         counter = 0
-        while(current_sym_top != '#' ):
-            counter += 1
-            print("第{}步,符号栈：{},输入栈{}符号栈顶{}输入栈顶{}".format(counter, symstack, inputstack, current_sym_top, current_in_top))
-            if current_sym_top in self.nonterminal:
-                m_production = self.pretable[current_in_top][current_sym_top].strip('->')
-                if m_production == 'error':
-                    print('error,分析停止')
-                    break
-                elif m_production == '@':
+        try:
+            while(current_sym_top != '#' ):
+                counter += 1
+                print("第{}步   ,\33[4m符号栈\33[0m:{}\33[4m输入栈\33[0m{}"
+                      .format(str(counter).ljust(3),
+                              (str(symstack)[:-1]+','+current_sym_top+']').ljust(20),
+                              ('['+current_in_top+','+str(inputstack)[1:]).ljust(10)))
+                if current_sym_top in self.nonterminal:
+                    m_production = self.pretable[current_in_top][current_sym_top].strip('->')
+                    if m_production == 'error':
+                        print('\33[35merror,分析停止')
+                        break
+                    elif m_production == '@':
+                        current_sym_top = symstack.pop()
+                    else:
+                        # 把产生式的每个非终结符入栈
+                        tmp = list(m_production)
+                        for i in range(len(m_production)):
+                            symstack.append(tmp.pop())
+                        current_sym_top = symstack.pop()
+                        # print("产生式:->{}".format(m_production))
+                elif current_sym_top in self.terminal:
                     current_sym_top = symstack.pop()
-                else:
-                    # 把产生式的每个非终结符入栈
-                    tmp = list(m_production)
-                    for i in range(len(m_production)):
-                        symstack.append(tmp.pop())
-                    current_sym_top = symstack.pop()
-                    print("产生式:->{}".format(m_production))
-            elif current_sym_top in self.terminal:
-                current_sym_top = symstack.pop()
-                current_in_top = inputstack.pop(0)
-        if current_sym_top == current_in_top == '#':
-            print("分析成功")
+                    current_in_top = inputstack.pop(0)
+            if current_sym_top == current_in_top == '#':
+                print("\33[35;1m分析成功\33[4m")
+        except:
+            print('\33[35merror,分析停止')
+
 
 
 
@@ -251,6 +259,7 @@ class Parser:
             print("x:{}y:{}content:{}".format(x, y, content))
     def _error(self, str1, str2, x, y):
         print("不是LL1文法,冲突为{},{},位置为{}，{}".format(str1, str2, x, y))
+        self.iserror = True
 
 
 
@@ -274,16 +283,19 @@ if __name__ == '__main__':
     pprint(parser.can_be_empty,width=40)
     # pprint(parser.pretable,width=200)
 
-    tb = pt.PrettyTable()
-    # tb.field_names = parser.pretable.keys()
-    _flag = True
-    for key1 in parser.pretable.keys():
-        if _flag:
-            tb.add_column(" ", list(parser.pretable[key1]))
-            _flag = False
-        tb.add_column(key1,list(parser.pretable[key1].values()))
+    if not parser.iserror:
+        tb = pt.PrettyTable()
+        # tb.field_names = parser.pretable.keys()
+        _flag = True
+        for key1 in parser.pretable.keys():
+            if _flag:
+                tb.add_column(" ", list(parser.pretable[key1]))
+                _flag = False
+            tb.add_column(key1,list(parser.pretable[key1].values()))
 
-    print(tb)
+        print(tb)
 
-    target = 'i+i*i#'
-    parser.ll1(target)
+        target = 'i+i+i*i#'
+        parser.ll1(target)
+    else:
+        print("\33[不是LL1文法")
