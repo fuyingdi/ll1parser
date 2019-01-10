@@ -9,8 +9,8 @@ class Parser:
     lines = []
     terminal = set()  # 终结符
     nonterminal = set()  # 非终结符
-    follow = {} # follow集
-    first = {}
+    follow = odict() # follow集
+    first = odict()
     start = ''
     pretable = odict() # 预测分析表
     can_be_empty = [] # 能推导出空串的非终
@@ -58,9 +58,11 @@ class Parser:
             self.first[non] = [set(), set()]
             self.follow[non] = [set(), set(), set()] # 三个集合分别为，终结符集合，非终结符First集,非终结符Follow集
         for ter in self.terminal:
-            self.pretable[ter] = odict()
+            if ter != '@':
+                self.pretable[ter] = odict()
             for non in self.nonterminal:
-                self.pretable[ter][non] = 'error'
+                if ter!='@':
+                    self.pretable[ter][non] = 'error'
 
 
     def make_first(self):
@@ -107,23 +109,34 @@ class Parser:
                     elif right[i+1] in self.nonterminal:
                         self.follow[right[i]][1].add(right[i+1])
                         # 如果后跟的非终结符含有空串@,就把其follow集也加入
-                        if '@' in self.first[right[i+1]]:
+                        if right[i+1] in self.can_be_empty:
                             self.follow[right[i]][2].add(right[i+1])
             # 对形如U－>…P的产生式的情况，把Follow(U)添加倒Follow（P)
             _tmp = right[len(right)-1]
             if _tmp in self.nonterminal:
                 if _tmp is not left:
+                    # print("1.add {}'s follow to {}".format(left, _tmp))
                     self.follow[_tmp][2].add(left)
+            # 对形如U->…PB的产生式，且B可以为空的情况，把Follow(U)添加倒Follow（P)
+            if _tmp in self.can_be_empty:
+                _tmp2 = right[len(right)-2]
+                if _tmp2 in self.nonterminal:
+                    self.follow[_tmp2][2].add(left)
+                    # print("2.add {}'s follow to {}".format(left, _tmp2))
+
         # 处理第2，3个集合直到为空
         notempty = 1
         while(notempty>0):
             for item in self.follow:
                 if len(self.follow[item][2])>0:
                     _toremove = []
+                    tmp_set = set()
                     for ans in self.follow[item][2]:
                         self.follow[item][0] |= self.follow[ans][0]
                         self.follow[item][1] |= self.follow[ans][1]
+                        tmp_set |= self.follow[ans][2]
                         _toremove.append(ans)
+                    self.follow[item][2] |= tmp_set
                     # 移除第3个集合中非终结符
                     for i in _toremove:
                         self.follow[item][2].remove(i)
@@ -132,7 +145,7 @@ class Parser:
                 if len(self.follow[item][1])>0:
                     _toremove = []
                     for ans in self.follow[item][1]:
-                        self.follow[item][0] |= self.first[ans][0]
+                        self.follow[item][0] |= (self.first[ans][0]-{'@'})
                         _toremove.append(ans)
                     # 移除第2个集合中非终结符
                     for i in _toremove:
@@ -147,27 +160,73 @@ class Parser:
     def make_pretable(self):
         '''
         (1)对First(A)中的每一个终结符a，把A->XXX加入M[A,a]中。
-        (2)若‘空’在First(A)中，把Follow(A)的每一个终结符b(包括$)，
-            把A->XXX加入M[A,b]中。剩下为错误条目，空白处理。
+        (2)若产生式的右部可以为空，则把产生式加入左部的follow集中的每个元素的对应位置
         '''
         # 执行步骤(1)
         for line in self.lines:
             # left和x作为坐标确定分析表中的位置
             left, right = line.split('->')
-            isempty_exist = False
-            for x in self.first[left][0]:
-                if x == '@':
-                    isempty_exist = True
-                self._set_tableitem(x, left, line)
-            # 执行步骤(2)
-            if isempty_exist:
-                for x in self.follow[left][0]:
-                    self._set_tableitem(x, left, line)
+            # (1) 如果右部是终结符开头，直接把右部加入开头的终结符
+            if right[0] in self.terminal:
+                self._set_tableitem(right[0], left, right)
+            # (2) 如果右部是非终结符开头，则把右部加入此非终结符的first集的每个元素
+            elif right[0] in self.nonterminal:
+                for i in self.first[right[0]][0]:
+                    self._set_tableitem(i, left, right)
+            # (3) 如果右部可以为空
+            m_canbeempty = True
+            for ch in right:
+                if ch in self.terminal and ch != '@':
+                    m_canbeempty = False
+                elif ch in self.nonterminal and ch not in self.can_be_empty:
+                    m_canbeempty = False
+            if m_canbeempty:
+                for element in self.follow[left][0]:
+                    self._set_tableitem(element, left, right)
+                    print("we taking {} into {}'s ".format(line, element))
+
+            # isempty_exist = False
+            # for x in self.first[left][0]:
+            #     if x == '@':
+            #         isempty_exist = True
+            #     self._set_tableitem(x, left, line)
+            # # 执行步骤(2)
+            # if isempty_exist:
+            #     for x in self.follow[left][0]:
+            #         self._set_tableitem(x, left, line)
 
 
 
     def ll1(self, str):
-        pass
+        symstack = ['#', self.start]
+        print(symstack)
+        inputstack = list(str)
+        print(inputstack)
+        current_sym_top = symstack.pop()
+        current_in_top = inputstack.pop(0)
+        counter = 0
+        while(current_sym_top != '#' ):
+            counter += 1
+            print("第{}步,符号栈：{},输入栈{}符号栈顶{}输入栈顶{}".format(counter, symstack, inputstack, current_sym_top, current_in_top))
+            if current_sym_top in self.nonterminal:
+                m_production = self.pretable[current_in_top][current_sym_top].strip('->')
+                if m_production == 'error':
+                    print('error,分析停止')
+                    break
+                elif m_production == '@':
+                    current_sym_top = symstack.pop()
+                else:
+                    # 把产生式的每个非终结符入栈
+                    tmp = list(m_production)
+                    for i in range(len(m_production)):
+                        symstack.append(tmp.pop())
+                    current_sym_top = symstack.pop()
+                    print("产生式:->{}".format(m_production))
+            elif current_sym_top in self.terminal:
+                current_sym_top = symstack.pop()
+                current_in_top = inputstack.pop(0)
+        if current_sym_top == current_in_top == '#':
+            print("分析成功")
 
 
 
@@ -184,7 +243,7 @@ class Parser:
     def _set_tableitem(self, x, y, content):
         try:
             if self.pretable[x][y] == 'error' or self.pretable[x][y] == content:
-                self.pretable[x][y] = content
+                self.pretable[x][y] = '->' + content
             else:
             #    print("{}将被替换为{}".format(self.pretable[x][y], content))
                 self._error(self.pretable[x][y], content, x, y)
@@ -197,7 +256,7 @@ class Parser:
 
 if __name__ == '__main__':
     parser = Parser()
-    parser.open('data.txt')
+    parser.open('data1')
     print(parser.lines)
     print(parser.nonterminal)
     print(parser.terminal)
@@ -208,9 +267,9 @@ if __name__ == '__main__':
     parser.make_pretable()
 
     print ("\033[;32m first\033[0m")
-    pprint(parser.first,width=30)
+    pprint(parser.first,width=40)
     print ("\033[;32m follow\033[0m")
-    pprint(parser.follow,width=40)
+    pprint(parser.follow,width=70)
     print ("\033[;32m can be empty\033[0m")
     pprint(parser.can_be_empty,width=40)
     # pprint(parser.pretable,width=200)
@@ -224,5 +283,7 @@ if __name__ == '__main__':
             _flag = False
         tb.add_column(key1,list(parser.pretable[key1].values()))
 
-
     print(tb)
+
+    target = 'i+i*i#'
+    parser.ll1(target)
